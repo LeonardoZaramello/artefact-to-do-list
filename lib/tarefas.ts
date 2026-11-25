@@ -16,19 +16,47 @@ export type DadosTarefa = {
 
 export type Resultado = { erro?: string };
 
+export type PaginaTarefas = {
+  tarefas: Tarefa[];
+  /** Offset da próxima página; `null` quando não há mais tarefas. */
+  proximoCursor: number | null;
+  total: number;
+};
+
 const esquemaTarefa = z.object({
   titulo: z.string().trim().min(1, "O título é obrigatório"),
   descricao: z.string().trim().optional(),
 });
 
+const QUANTIDADE_INICIAL = 100;
+const TAMANHO_PAGINA = 8;
+
 /**
  * Regra de negócio: a lista vive só na memória do processo.
- * Reiniciar o servidor começa do zero — não há persistência em disco.
+ * Reiniciar o servidor recomeça com as tarefas de exemplo.
  */
-type Estado = { tarefas: Tarefa[] };
+type Estado = { tarefas: Tarefa[]; semeado: boolean };
 
 const escopo = globalThis as typeof globalThis & { __tarefas?: Estado };
-const estado = (escopo.__tarefas ??= { tarefas: [] });
+const estado = (escopo.__tarefas ??= { tarefas: [], semeado: false });
+
+function semearTarefasIniciais() {
+  if (estado.semeado) return;
+
+  estado.semeado = true;
+  const agora = Date.now();
+
+  for (let indice = 1; indice <= QUANTIDADE_INICIAL; indice += 1) {
+    estado.tarefas.push({
+      id: randomUUID(),
+      titulo: `Tarefa de exemplo ${indice}`,
+      descricao: indice % 3 === 0 ? `Descrição da tarefa ${indice}` : undefined,
+      dataCriacao: agora - (indice - 1) * 60_000,
+    });
+  }
+}
+
+semearTarefasIniciais();
 
 export function listarTarefas(): Tarefa[] {
   return [...estado.tarefas]
@@ -38,6 +66,21 @@ export function listarTarefas(): Tarefa[] {
 
 export function buscarTarefa(id: string): Tarefa | null {
   return estado.tarefas.find((tarefa) => tarefa.id === id) ?? null;
+}
+
+export function listarTarefasPaginado(
+  cursor = 0,
+  limite = TAMANHO_PAGINA,
+): PaginaTarefas {
+  const todas = listarTarefas();
+  const inicio = Math.max(0, cursor);
+  const fim = inicio + limite;
+
+  return {
+    tarefas: todas.slice(inicio, fim),
+    proximoCursor: fim < todas.length ? fim : null,
+    total: todas.length,
+  };
 }
 
 export function criarTarefa(dados: DadosTarefa): Resultado {
@@ -67,6 +110,11 @@ export function excluirTarefa(id: string): Resultado {
   }
 
   estado.tarefas.splice(indice, 1);
+  return {};
+}
+
+export function excluirTodasTarefas(): Resultado {
+  estado.tarefas.splice(0, estado.tarefas.length);
   return {};
 }
 

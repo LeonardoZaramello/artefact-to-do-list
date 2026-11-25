@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
-import type { Resultado, Tarefa } from "@/lib/tarefas";
+import type { PaginaTarefas, Resultado, Tarefa } from "@/lib/tarefas";
 
 type Props = {
   iniciais: Tarefa[];
+  cursorInicial: number | null;
+  totalInicial: number;
   mensagemInicial: string | null;
   excluirAcao: (id: string) => Promise<Resultado>;
+  carregarMaisAcao: (cursor: number) => Promise<PaginaTarefas>;
 };
 
 const formatoData = new Intl.DateTimeFormat("pt-BR", {
@@ -16,13 +19,74 @@ const formatoData = new Intl.DateTimeFormat("pt-BR", {
   timeStyle: "short",
 });
 
-export function ListaTarefas({ iniciais, mensagemInicial, excluirAcao }: Props) {
+export function ListaTarefas({
+  iniciais,
+  cursorInicial,
+  totalInicial,
+  mensagemInicial,
+  excluirAcao,
+  carregarMaisAcao,
+}: Props) {
+  const [tarefas, setTarefas] = useState(iniciais);
+  const [cursor, setCursor] = useState<number | null>(cursorInicial);
+  const [total, setTotal] = useState(totalInicial);
   const [mensagemLocal, setMensagemLocal] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [erroCarregamento, setErroCarregamento] = useState<string | null>(null);
+  const [carregandoMais, setCarregandoMais] = useState(false);
   const [excluindo, setExcluindo] = useState<string | null>(null);
   const [, iniciarExclusao] = useTransition();
 
+  const sentinela = useRef<HTMLDivElement | null>(null);
+  const carregandoRef = useRef(false);
+
   const mensagem = mensagemLocal ?? mensagemInicial;
+
+  const carregarMais = useCallback(async () => {
+    if (cursor === null || carregandoRef.current) return;
+
+    carregandoRef.current = true;
+    setCarregandoMais(true);
+    setErroCarregamento(null);
+
+    try {
+      const pagina = await carregarMaisAcao(cursor);
+
+      setTarefas((atuais) => {
+        const vistos = new Set(atuais.map((tarefa) => tarefa.id));
+        return [
+          ...atuais,
+          ...pagina.tarefas.filter((tarefa) => !vistos.has(tarefa.id)),
+        ];
+      });
+      setCursor(pagina.proximoCursor);
+      setTotal(pagina.total);
+    } catch {
+      setErroCarregamento("Não foi possível carregar mais tarefas.");
+    } finally {
+      carregandoRef.current = false;
+      setCarregandoMais(false);
+    }
+  }, [carregarMaisAcao, cursor]);
+
+  // Infinite scroll: carrega a próxima página quando o fim da lista se aproxima.
+  useEffect(() => {
+    const alvo = sentinela.current;
+
+    if (!alvo || cursor === null) return;
+
+    const observador = new IntersectionObserver(
+      (entradas) => {
+        if (entradas.some((entrada) => entrada.isIntersecting)) {
+          void carregarMais();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    observador.observe(alvo);
+    return () => observador.disconnect();
+  }, [carregarMais, cursor]);
 
   function remover(tarefa: Tarefa) {
     if (!window.confirm(`Excluir a tarefa "${tarefa.titulo}"?`)) return;
@@ -37,7 +101,13 @@ export function ListaTarefas({ iniciais, mensagemInicial, excluirAcao }: Props) 
 
       if (resultado?.erro) {
         setErro(resultado.erro);
+        return;
       }
+
+      setTarefas((atuais) => atuais.filter((item) => item.id !== tarefa.id));
+      setCursor((atual) => (atual === null ? null : Math.max(0, atual - 1)));
+      setTotal((atual) => Math.max(0, atual - 1));
+      setMensagemLocal("Tarefa excluída com sucesso.");
     });
   }
 
@@ -61,13 +131,19 @@ export function ListaTarefas({ iniciais, mensagemInicial, excluirAcao }: Props) 
         </p>
       ) : null}
 
-      {iniciais.length === 0 ? (
+      {total > 0 ? (
+        <p className="text-xs text-zinc-500">
+          Mostrando {tarefas.length} de {total} tarefa{total === 1 ? "" : "s"}
+        </p>
+      ) : null}
+
+      {tarefas.length === 0 ? (
         <p className="rounded border border-dashed border-zinc-300 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
           Nenhuma tarefa cadastrada ainda. Use o botão “Nova tarefa”.
         </p>
       ) : (
         <ul className="divide-y divide-zinc-200 rounded border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-          {iniciais.map((tarefa) => {
+          {tarefas.map((tarefa) => {
             const removendo = excluindo === tarefa.id;
 
             return (
@@ -110,6 +186,32 @@ export function ListaTarefas({ iniciais, mensagemInicial, excluirAcao }: Props) 
           })}
         </ul>
       )}
+
+      {cursor !== null ? (
+        <div ref={sentinela} aria-hidden="true" className="h-1" />
+      ) : null}
+
+      {carregandoMais ? (
+        <p role="status" className="text-center text-sm text-zinc-500">
+          Carregando mais tarefas…
+        </p>
+      ) : null}
+
+      {erroCarregamento ? (
+        <p
+          role="alert"
+          className="flex flex-wrap items-center justify-center gap-2 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+        >
+          {erroCarregamento}
+          <button
+            type="button"
+            onClick={() => void carregarMais()}
+            className="rounded border border-current px-2 py-1 font-medium"
+          >
+            Tentar novamente
+          </button>
+        </p>
+      ) : null}
     </div>
   );
 }
