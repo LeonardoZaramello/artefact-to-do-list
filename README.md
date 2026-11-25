@@ -1,6 +1,6 @@
 # Lista de tarefas
 
-Projeto simples com Next.js (App Router): listagem renderizada no servidor, criação e exclusão de tarefas. Os dados ficam em memória — reiniciar o servidor zera a lista.
+Projeto simples com Next.js (App Router): listagem renderizada no servidor, criação, edição e exclusão de tarefas. Os dados ficam em memória — reiniciar o servidor zera a lista.
 
 ## Rodar
 

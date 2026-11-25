@@ -65,3 +65,27 @@ export function excluirTarefa(id: string): Resultado {
   estado.tarefas.splice(indice, 1);
   return {};
 }
+
+export function atualizarTarefa(id: string, dados: DadosTarefa): Resultado {
+  const validacao = esquemaTarefa.safeParse(dados);
+
+  if (!validacao.success) {
+    return { erro: validacao.error.issues[0]?.message ?? "Dados inválidos." };
+  }
+
+  const indice = estado.tarefas.findIndex((tarefa) => tarefa.id === id);
+
+  if (indice === -1) {
+    return { erro: "Tarefa não encontrada." };
+  }
+
+  const descricao = validacao.data.descricao?.trim();
+
+  estado.tarefas[indice] = {
+    ...estado.tarefas[indice],
+    titulo: validacao.data.titulo,
+    descricao: descricao ? descricao : undefined,
+  };
+
+  return {};
+}

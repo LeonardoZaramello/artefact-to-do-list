@@ -1,13 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 import type { DadosTarefa, Resultado, Tarefa } from "@/lib/tarefas";
 
 type Props = {
   iniciais: Tarefa[];
   criarAcao: (dados: DadosTarefa) => Promise<Resultado>;
+  atualizarAcao: (id: string, dados: DadosTarefa) => Promise<Resultado>;
   excluirAcao: (id: string) => Promise<Resultado>;
 };
 
@@ -16,17 +17,26 @@ const formatoData = new Intl.DateTimeFormat("pt-BR", {
   timeStyle: "short",
 });
 
-export function Tarefas({ iniciais, criarAcao, excluirAcao }: Props) {
+export function Tarefas({ iniciais, criarAcao, atualizarAcao, excluirAcao }: Props) {
   const router = useRouter();
+  const formulario = useRef<HTMLFormElement>(null);
 
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
+  const [editandoId, setEditandoId] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [mensagem, setMensagem] = useState<string | null>(null);
 
-  const [salvando, iniciarCriacao] = useTransition();
+  const [salvando, iniciarSalvamento] = useTransition();
   const [excluindo, setExcluindo] = useState<string | null>(null);
   const [, iniciarExclusao] = useTransition();
+
+  function limparFormulario() {
+    setTitulo("");
+    setDescricao("");
+    setEditandoId(null);
+    setErro(null);
+  }
 
   function enviar(evento: React.FormEvent<HTMLFormElement>) {
     evento.preventDefault();
@@ -41,8 +51,13 @@ export function Tarefas({ iniciais, criarAcao, excluirAcao }: Props) {
     setErro(null);
     setMensagem(null);
 
-    iniciarCriacao(async () => {
-      const resultado = await criarAcao({ titulo, descricao });
+    const dados: DadosTarefa = { titulo, descricao };
+    const idEmEdicao = editandoId;
+
+    iniciarSalvamento(async () => {
+      const resultado = idEmEdicao
+        ? await atualizarAcao(idEmEdicao, dados)
+        : await criarAcao(dados);
 
       if (resultado.erro) {
         setErro(resultado.erro);
@@ -51,9 +66,22 @@ export function Tarefas({ iniciais, criarAcao, excluirAcao }: Props) {
 
       setTitulo("");
       setDescricao("");
-      setMensagem("Tarefa criada com sucesso.");
+      setEditandoId(null);
+      setMensagem(
+        idEmEdicao ? "Tarefa atualizada com sucesso." : "Tarefa criada com sucesso.",
+      );
       router.refresh();
     });
+  }
+
+  function iniciarEdicao(tarefa: Tarefa) {
+    setEditandoId(tarefa.id);
+    setTitulo(tarefa.titulo);
+    setDescricao(tarefa.descricao ?? "");
+    setErro(null);
+    setMensagem(null);
+    formulario.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById("titulo")?.focus();
   }
 
   function remover(tarefa: Tarefa) {
@@ -72,6 +100,10 @@ export function Tarefas({ iniciais, criarAcao, excluirAcao }: Props) {
         return;
       }
 
+      if (editandoId === tarefa.id) {
+        limparFormulario();
+      }
+
       setMensagem("Tarefa excluída com sucesso.");
       router.refresh();
     });
@@ -79,7 +111,16 @@ export function Tarefas({ iniciais, criarAcao, excluirAcao }: Props) {
 
   return (
     <div className="flex flex-col gap-6">
-      <form onSubmit={enviar} noValidate className="flex flex-col gap-3">
+      <form
+        ref={formulario}
+        onSubmit={enviar}
+        noValidate
+        className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800"
+      >
+        <h2 className="text-sm font-semibold">
+          {editandoId ? "Editar tarefa" : "Nova tarefa"}
+        </h2>
+
         <div className="flex flex-col gap-1">
           <label htmlFor="titulo" className="text-sm font-medium">
             Título
@@ -122,14 +163,31 @@ export function Tarefas({ iniciais, criarAcao, excluirAcao }: Props) {
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={salvando}
-          aria-busy={salvando}
-          className="w-fit rounded bg-foreground px-4 py-2 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {salvando ? "Salvando…" : "Adicionar tarefa"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="submit"
+            disabled={salvando}
+            aria-busy={salvando}
+            className="w-fit rounded bg-foreground px-4 py-2 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {salvando
+              ? "Salvando…"
+              : editandoId
+                ? "Salvar alterações"
+                : "Adicionar tarefa"}
+          </button>
+
+          {editandoId ? (
+            <button
+              type="button"
+              onClick={limparFormulario}
+              disabled={salvando}
+              className="rounded border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              Cancelar
+            </button>
+          ) : null}
+        </div>
       </form>
 
       {mensagem ? (
@@ -141,41 +199,69 @@ export function Tarefas({ iniciais, criarAcao, excluirAcao }: Props) {
         </p>
       ) : null}
 
+      <h1 className="text-2xl font-semibold">Lista de tarefas</h1>
+
       {iniciais.length === 0 ? (
         <p className="rounded border border-dashed border-zinc-300 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
           Nenhuma tarefa cadastrada ainda.
         </p>
       ) : (
         <ul className="divide-y divide-zinc-200 rounded border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-          {iniciais.map((tarefa) => (
-            <li
-              key={tarefa.id}
-              className="flex items-start justify-between gap-4 p-4"
-              aria-busy={excluindo === tarefa.id}
-            >
-              <div className="min-w-0">
-                <p className="truncate font-medium">{tarefa.titulo}</p>
-                {tarefa.descricao ? (
-                  <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                    {tarefa.descricao}
-                  </p>
-                ) : null}
-                <p className="mt-1 text-xs text-zinc-500">
-                  Criada em {formatoData.format(new Date(tarefa.dataCriacao))}
-                </p>
-              </div>
+          {iniciais.map((tarefa) => {
+            const emEdicao = editandoId === tarefa.id;
+            const removendo = excluindo === tarefa.id;
 
-              <button
-                type="button"
-                onClick={() => remover(tarefa)}
-                disabled={excluindo === tarefa.id}
-                aria-busy={excluindo === tarefa.id}
-                className="shrink-0 rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+            return (
+              <li
+                key={tarefa.id}
+                className={
+                  emEdicao
+                    ? "flex items-start justify-between gap-4 bg-zinc-50 p-4 dark:bg-zinc-900"
+                    : "flex items-start justify-between gap-4 p-4"
+                }
+                aria-busy={removendo}
               >
-                {excluindo === tarefa.id ? "Excluindo…" : "Excluir"}
-              </button>
-            </li>
-          ))}
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {tarefa.titulo}
+                    {emEdicao ? (
+                      <span className="ml-2 align-middle text-xs font-normal text-zinc-500">
+                        em edição
+                      </span>
+                    ) : null}
+                  </p>
+                  {tarefa.descricao ? (
+                    <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                      {tarefa.descricao}
+                    </p>
+                  ) : null}
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Criada em {formatoData.format(new Date(tarefa.dataCriacao))}
+                  </p>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => iniciarEdicao(tarefa)}
+                    disabled={salvando || emEdicao}
+                    className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => remover(tarefa)}
+                    disabled={removendo}
+                    aria-busy={removendo}
+                    className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+                  >
+                    {removendo ? "Excluindo…" : "Excluir"}
+                  </button>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
