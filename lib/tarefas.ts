@@ -36,6 +36,10 @@ export function listarTarefas(): Tarefa[] {
     .sort((a, b) => b.dataCriacao - a.dataCriacao);
 }
 
+export function buscarTarefa(id: string): Tarefa | null {
+  return estado.tarefas.find((tarefa) => tarefa.id === id) ?? null;
+}
+
 export function criarTarefa(dados: DadosTarefa): Resultado {
   const validacao = esquemaTarefa.safeParse(dados);
 
